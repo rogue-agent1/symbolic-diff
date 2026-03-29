@@ -1,13 +1,11 @@
-# Symbolic Diff
+# symbolic-diff
 
-Symbolic differentiation engine.
+Symbolic differentiation of mathematical expressions.
 
 ## Usage
 
 ```bash
-python3 symbolic_diff.py
+python3 symbolic_diff.py test
 ```
 
-## License
-
-MIT
+Zero dependencies. Python 3.8+.

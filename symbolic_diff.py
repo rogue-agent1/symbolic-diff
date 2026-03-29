@@ -1,49 +1,99 @@
 #!/usr/bin/env python3
-"""Symbolic differentiation engine."""
-def diff(expr,var):
-    if isinstance(expr,(int,float)): return 0
-    if isinstance(expr,str): return 1 if expr==var else 0
-    op=expr[0]
-    if op=="+": return simplify(("+",diff(expr[1],var),diff(expr[2],var)))
-    if op=="-": return simplify(("-",diff(expr[1],var),diff(expr[2],var)))
-    if op=="*": return simplify(("+",("*",diff(expr[1],var),expr[2]),("*",expr[1],diff(expr[2],var))))
-    if op=="/":
-        return simplify(("/",("-",("*",diff(expr[1],var),expr[2]),("*",expr[1],diff(expr[2],var))),("*",expr[2],expr[2])))
-    if op=="^" and isinstance(expr[2],(int,float)):
-        return simplify(("*",("*",expr[2],("^",expr[1],expr[2]-1)),diff(expr[1],var)))
-    if op=="sin": return simplify(("*",("cos",expr[1]),diff(expr[1],var)))
-    if op=="cos": return simplify(("*",("-",0,("sin",expr[1])),diff(expr[1],var)))
-    if op=="exp": return simplify(("*",("exp",expr[1]),diff(expr[1],var)))
-    if op=="ln": return simplify(("/",diff(expr[1],var),expr[1]))
-    return ("diff",expr,var)
+"""symbolic_diff - Symbolic differentiation of mathematical expressions."""
+import sys
+
+class Expr:
+    pass
+class Num(Expr):
+    def __init__(self, v): self.v = v
+    def __repr__(self): return str(self.v)
+class Var(Expr):
+    def __init__(self, name): self.name = name
+    def __repr__(self): return self.name
+class BinOp(Expr):
+    def __init__(self, op, l, r): self.op = op; self.l = l; self.r = r
+    def __repr__(self): return f"({self.l} {self.op} {self.r})"
+class Func(Expr):
+    def __init__(self, name, arg): self.name = name; self.arg = arg
+    def __repr__(self): return f"{self.name}({self.arg})"
+
+def diff(expr, var):
+    if isinstance(expr, Num):
+        return Num(0)
+    if isinstance(expr, Var):
+        return Num(1) if expr.name == var else Num(0)
+    if isinstance(expr, BinOp):
+        dl, dr = diff(expr.l, var), diff(expr.r, var)
+        if expr.op == "+": return BinOp("+", dl, dr)
+        if expr.op == "-": return BinOp("-", dl, dr)
+        if expr.op == "*": return BinOp("+", BinOp("*", dl, expr.r), BinOp("*", expr.l, dr))
+        if expr.op == "/":
+            return BinOp("/", BinOp("-", BinOp("*", dl, expr.r), BinOp("*", expr.l, dr)), BinOp("*", expr.r, expr.r))
+        if expr.op == "^":
+            # x^n => n*x^(n-1)*dx
+            return BinOp("*", BinOp("*", expr.r, BinOp("^", expr.l, BinOp("-", expr.r, Num(1)))), diff(expr.l, var))
+    if isinstance(expr, Func):
+        inner = diff(expr.arg, var)
+        if expr.name == "sin": return BinOp("*", Func("cos", expr.arg), inner)
+        if expr.name == "cos": return BinOp("*", BinOp("*", Num(-1), Func("sin", expr.arg)), inner)
+        if expr.name == "exp": return BinOp("*", Func("exp", expr.arg), inner)
+        if expr.name == "ln": return BinOp("*", BinOp("/", Num(1), expr.arg), inner)
+    return Num(0)
+
 def simplify(expr):
-    if not isinstance(expr,tuple): return expr
-    if expr[0]=="+" and expr[1]==0: return expr[2]
-    if expr[0]=="+" and expr[2]==0: return expr[1]
-    if expr[0]=="*" and expr[1]==0: return 0
-    if expr[0]=="*" and expr[2]==0: return 0
-    if expr[0]=="*" and expr[1]==1: return expr[2]
-    if expr[0]=="*" and expr[2]==1: return expr[1]
-    if expr[0]=="^" and expr[2]==0: return 1
-    if expr[0]=="^" and expr[2]==1: return expr[1]
-    if isinstance(expr[1],(int,float)) and len(expr)>2 and isinstance(expr[2],(int,float)):
-        if expr[0]=="+": return expr[1]+expr[2]
-        if expr[0]=="-": return expr[1]-expr[2]
-        if expr[0]=="*": return expr[1]*expr[2]
+    if isinstance(expr, BinOp):
+        l, r = simplify(expr.l), simplify(expr.r)
+        if expr.op == "+":
+            if isinstance(l, Num) and l.v == 0: return r
+            if isinstance(r, Num) and r.v == 0: return l
+            if isinstance(l, Num) and isinstance(r, Num): return Num(l.v + r.v)
+        if expr.op == "*":
+            if isinstance(l, Num) and l.v == 0: return Num(0)
+            if isinstance(r, Num) and r.v == 0: return Num(0)
+            if isinstance(l, Num) and l.v == 1: return r
+            if isinstance(r, Num) and r.v == 1: return l
+            if isinstance(l, Num) and isinstance(r, Num): return Num(l.v * r.v)
+        if expr.op == "-":
+            if isinstance(r, Num) and r.v == 0: return l
+            if isinstance(l, Num) and isinstance(r, Num): return Num(l.v - r.v)
+        return BinOp(expr.op, l, r)
     return expr
-def to_str(expr):
-    if isinstance(expr,(int,float)): return str(expr)
-    if isinstance(expr,str): return expr
-    op=expr[0]
-    if op in ("+","-","*","/","^"): return f"({to_str(expr[1])} {op} {to_str(expr[2])})"
-    if len(expr)==2: return f"{op}({to_str(expr[1])})"
-    return str(expr)
-if __name__=="__main__":
-    x="x"
-    e1=("+",("*",3,("^",x,2)),("*",2,x))
-    d1=diff(e1,x);print(f"d/dx[3x^2+2x] = {to_str(d1)}")
-    e2=("sin",("*",2,x))
-    d2=diff(e2,x);print(f"d/dx[sin(2x)] = {to_str(d2)}")
-    e3=("exp",("^",x,2))
-    d3=diff(e3,x);print(f"d/dx[exp(x^2)] = {to_str(d3)}")
-    print("Symbolic diff OK")
+
+def evaluate(expr, env):
+    import math as m
+    if isinstance(expr, Num): return expr.v
+    if isinstance(expr, Var): return env[expr.name]
+    if isinstance(expr, BinOp):
+        l, r = evaluate(expr.l, env), evaluate(expr.r, env)
+        if expr.op == "+": return l + r
+        if expr.op == "-": return l - r
+        if expr.op == "*": return l * r
+        if expr.op == "/": return l / r
+        if expr.op == "^": return l ** r
+    if isinstance(expr, Func):
+        a = evaluate(expr.arg, env)
+        return {"sin": m.sin, "cos": m.cos, "exp": m.exp, "ln": m.log}[expr.name](a)
+
+def test():
+    import math
+    # d/dx(x^2) = 2x
+    x2 = BinOp("^", Var("x"), Num(2))
+    dx2 = simplify(diff(x2, "x"))
+    val = evaluate(dx2, {"x": 3})
+    assert abs(val - 6.0) < 0.01
+    # d/dx(sin(x)) = cos(x)
+    sinx = Func("sin", Var("x"))
+    dsinx = simplify(diff(sinx, "x"))
+    val2 = evaluate(dsinx, {"x": 0})
+    assert abs(val2 - 1.0) < 0.01  # cos(0) = 1
+    # d/dx(x + 5) = 1
+    xp5 = BinOp("+", Var("x"), Num(5))
+    dxp5 = simplify(diff(xp5, "x"))
+    assert isinstance(dxp5, Num) and dxp5.v == 1
+    print("OK: symbolic_diff")
+
+if __name__ == "__main__":
+    if len(sys.argv) > 1 and sys.argv[1] == "test":
+        test()
+    else:
+        print("Usage: symbolic_diff.py test")
